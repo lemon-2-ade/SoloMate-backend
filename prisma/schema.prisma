@@ -37,11 +37,13 @@ model User {
   questProgresses   QuestProgress[]
   safetyReports     SafetyReport[]
   communityTips     CommunityTip[]
-  friends           User[]              @relation("UserFriends")
-  friendOf          User[]              @relation("UserFriends") 
   leaderboardEntries LeaderboardEntry[]
   locationProofs    LocationProof[]
   aiRecommendations AiRecommendation[]
+  
+  // Friendship and Follow Relations
+  sentRelationships     UserRelationship[] @relation("FriendRequestSender")
+  receivedRelationships UserRelationship[] @relation("FriendRequestReceiver")
 
   @@map("users")
 }
@@ -65,6 +67,9 @@ model City {
   safetyReports   SafetyReport[]
   leaderboards    Leaderboard[]
   cityStats       CityStats?
+  newsArticles    NewsArticle[]
+  newsSafetyImpacts NewsSafetyImpact[]
+  newsScrapingJobs NewsScrapingJob[]
 
   @@map("cities")
 }
@@ -406,4 +411,167 @@ model SystemConfig {
   updatedAt   DateTime @updatedAt
 
   @@map("system_config")
+}
+
+// News articles for safety analysis
+model NewsArticle {
+  id                String                @id @default(cuid())
+  title             String
+  summary           String?
+  content           String?
+  url               String                @unique
+  published         DateTime?
+  source            String
+  type              NewsSourceType        @default(RSS)
+  
+  // Location data
+  cityId            String?
+  latitude          Float?
+  longitude         Float?
+  locationRadius    Float?                // Radius of relevance in km
+  
+  // Safety analysis
+  safetyScore       Float                 @default(0.0)
+  threatLevel       Int                   @default(5) // 1-10 scale
+  concernType       NewsConcernType       @default(UNKNOWN)
+  sentimentPolarity Float                 @default(0.0) // -1 to 1
+  sentimentSubjectivity Float             @default(0.0) // 0 to 1
+  confidence        Float                 @default(0.0) // AI confidence 0-1
+  
+  // Metadata
+  isProcessed       Boolean               @default(false)
+  isRelevant        Boolean               @default(false)
+  processedAt       DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  
+  // Relations
+  city              City?                 @relation(fields: [cityId], references: [id])
+  safetyImpacts     NewsSafetyImpact[]
+
+  @@map("news_articles")
+}
+
+enum NewsSourceType {
+  RSS
+  NEWSAPI
+  WEB_SCRAPE
+  MCP
+  LOCAL_NEWS
+}
+
+enum NewsConcernType {
+  CRIME
+  VIOLENCE
+  TERRORISM
+  TRAFFIC
+  NATURAL_DISASTER
+  HEALTH
+  INFRASTRUCTURE
+  POSITIVE
+  UNKNOWN
+}
+
+// Impact of news on safety calculations
+model NewsSafetyImpact {
+  id              String      @id @default(cuid())
+  newsArticleId   String
+  cityId          String
+  
+  // Impact metrics
+  impactFactor    Float       @default(0.0) // How much this affects safety (-1 to 1)
+  weightFactor    Float       @default(1.0) // How much to weight this impact
+  decayFactor     Float       @default(1.0) // Time-based decay multiplier
+  
+  // Geospatial impact
+  latitude        Float
+  longitude       Float
+  radiusKm        Float       @default(5.0)
+  
+  // Validity
+  isActive        Boolean     @default(true)
+  expiresAt       DateTime?
+  createdAt       DateTime    @default(now())
+  
+  // Relations
+  newsArticle     NewsArticle @relation(fields: [newsArticleId], references: [id], onDelete: Cascade)
+  city            City        @relation(fields: [cityId], references: [id])
+
+  @@map("news_safety_impacts")
+}
+
+// News scraping job tracking
+model NewsScrapingJob {
+  id              String              @id @default(cuid())
+  cityId          String?
+  status          NewsJobStatus       @default(PENDING)
+  
+  // Job parameters
+  latitude        Float?
+  longitude       Float?
+  radiusKm        Float               @default(50.0)
+  daysBack        Int                 @default(7)
+  sources         String[]            // Which sources to scrape
+  
+  // Results
+  articlesFound   Int                 @default(0)
+  articlesProcessed Int               @default(0)
+  safetyRelevant  Int                 @default(0)
+  
+  // Execution details
+  startedAt       DateTime?
+  completedAt     DateTime?
+  errorMessage    String?
+  createdAt       DateTime            @default(now())
+  
+  // Relations
+  city            City?               @relation(fields: [cityId], references: [id])
+
+  @@map("news_scraping_jobs")
+}
+
+enum NewsJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// User relationship types and statuses
+enum RelationshipType {
+  FRIEND_REQUEST
+  FOLLOW
+}
+
+enum RelationshipStatus {
+  PENDING     // Friend request sent but not yet accepted
+  ACCEPTED    // Friend request accepted / Active follow
+  REJECTED    // Friend request rejected
+  BLOCKED     // User blocked
+}
+
+// User relationships model for friends and followers
+model UserRelationship {
+  id               String             @id @default(cuid())
+  
+  // Relationship participants
+  fromUserId       String             // User who initiated the relationship
+  toUserId         String             // User who is the target of the relationship
+  
+  // Relationship details
+  type             RelationshipType   // FRIEND_REQUEST or FOLLOW
+  status           RelationshipStatus @default(PENDING)
+  
+  // Timestamps
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  
+  // Relations
+  fromUser         User               @relation("FriendRequestSender", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser           User               @relation("FriendRequestReceiver", fields: [toUserId], references: [id], onDelete: Cascade)
+  
+  // Constraints
+  @@unique([fromUserId, toUserId, type]) // Prevent duplicate relationships of same type
+  @@map("user_relationships")
 }

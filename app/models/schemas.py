@@ -277,3 +277,198 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     success: bool = False
+
+# News analysis models
+class NewsSourceType(str, Enum):
+    RSS = "RSS"
+    NEWSAPI = "NEWSAPI"
+    WEB_SCRAPE = "WEB_SCRAPE"
+    MCP = "MCP"
+    LOCAL_NEWS = "LOCAL_NEWS"
+
+class NewsConcernType(str, Enum):
+    CRIME = "CRIME"
+    VIOLENCE = "VIOLENCE"
+    TERRORISM = "TERRORISM"
+    TRAFFIC = "TRAFFIC"
+    NATURAL_DISASTER = "NATURAL_DISASTER"
+    HEALTH = "HEALTH"
+    INFRASTRUCTURE = "INFRASTRUCTURE"
+    POSITIVE = "POSITIVE"
+    UNKNOWN = "UNKNOWN"
+
+class NewsJobStatus(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+class NewsArticleCreate(BaseModel):
+    title: str
+    summary: Optional[str] = None
+    content: Optional[str] = None
+    url: str
+    published: Optional[datetime] = None
+    source: str
+    type: NewsSourceType = NewsSourceType.RSS
+    city_id: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    location_radius: Optional[float] = None
+
+class NewsArticleResponse(BaseModel):
+    id: str
+    title: str
+    summary: Optional[str]
+    content: Optional[str]
+    url: str
+    published: Optional[datetime]
+    source: str
+    type: NewsSourceType
+    city_id: Optional[str]
+    latitude: Optional[float]
+    longitude: Optional[float]
+    location_radius: Optional[float]
+    safety_score: float
+    threat_level: int
+    concern_type: NewsConcernType
+    sentiment_polarity: float
+    sentiment_subjectivity: float
+    confidence: float
+    is_processed: bool
+    is_relevant: bool
+    processed_at: Optional[datetime]
+    created_at: datetime
+
+class NewsSafetyImpactCreate(BaseModel):
+    news_article_id: str
+    city_id: str
+    impact_factor: float = Field(..., ge=-1.0, le=1.0)
+    weight_factor: float = Field(..., ge=0.0, le=2.0)
+    latitude: float
+    longitude: float
+    radius_km: float = Field(..., ge=0.1, le=100.0)
+    expires_at: Optional[datetime] = None
+
+class NewsSafetyImpactResponse(BaseModel):
+    id: str
+    news_article_id: str
+    city_id: str
+    impact_factor: float
+    weight_factor: float
+    decay_factor: float
+    latitude: float
+    longitude: float
+    radius_km: float
+    is_active: bool
+    expires_at: Optional[datetime]
+    created_at: datetime
+
+class NewsScrapingJobCreate(BaseModel):
+    city_id: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    radius_km: float = Field(default=50.0, ge=1.0, le=500.0)
+    days_back: int = Field(default=7, ge=1, le=30)
+    sources: List[str] = Field(default_factory=lambda: ["rss", "newsapi", "local"])
+
+class NewsScrapingJobResponse(BaseModel):
+    id: str
+    city_id: Optional[str]
+    status: NewsJobStatus
+    latitude: Optional[float]
+    longitude: Optional[float]
+    radius_km: float
+    days_back: int
+    sources: List[str]
+    articles_found: int
+    articles_processed: int
+    safety_relevant: int
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    error_message: Optional[str]
+    created_at: datetime
+
+class NewsSafetyAnalysis(BaseModel):
+    total_articles: int
+    relevant_articles: int
+    avg_threat_level: float
+    sentiment_score: float
+    news_safety_factor: float
+    confidence: float
+    analysis_date: datetime
+    top_concerns: List[str]
+    recent_incidents: int
+
+# User Relationship models for friends and followers
+class RelationshipType(str, Enum):
+    FRIEND_REQUEST = "FRIEND_REQUEST"
+    FOLLOW = "FOLLOW"
+
+class RelationshipStatus(str, Enum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    BLOCKED = "BLOCKED"
+
+class FriendRequestCreate(BaseModel):
+    to_user_id: str = Field(..., description="ID of the user to send friend request to")
+
+class FollowUserRequest(BaseModel):
+    user_id: str = Field(..., description="ID of the user to follow")
+
+class RelationshipResponse(BaseModel):
+    id: str
+    from_user_id: str
+    to_user_id: str
+    type: RelationshipType
+    status: RelationshipStatus
+    created_at: datetime
+    updated_at: datetime
+
+class RelationshipWithUserResponse(BaseModel):
+    id: str
+    type: RelationshipType
+    status: RelationshipStatus
+    created_at: datetime
+    updated_at: datetime
+    user: UserResponse  # The other user in the relationship
+
+class FriendRequestResponse(BaseModel):
+    id: str
+    from_user: UserResponse
+    to_user: UserResponse
+    status: RelationshipStatus
+    created_at: datetime
+    updated_at: datetime
+
+class FollowResponse(BaseModel):
+    id: str
+    follower: UserResponse
+    following: UserResponse
+    created_at: datetime
+
+class FriendsListResponse(BaseModel):
+    friends: List[UserResponse]
+    total_count: int
+
+class FollowersListResponse(BaseModel):
+    followers: List[UserResponse]
+    total_count: int
+
+class FollowingListResponse(BaseModel):
+    following: List[UserResponse]
+    total_count: int
+
+class PendingRequestsResponse(BaseModel):
+    sent_requests: List[FriendRequestResponse]
+    received_requests: List[FriendRequestResponse]
+    total_sent: int
+    total_received: int
+
+class UserRelationshipStats(BaseModel):
+    friends_count: int
+    followers_count: int
+    following_count: int
+    pending_requests_count: int
