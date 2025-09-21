@@ -17,7 +17,6 @@ async def get_user_profile(current_user = Depends(get_current_user)):
     """Get current user's profile"""
     return UserResponse(
         id=current_user.id,
-        wallet_address=current_user.walletAddress,
         username=current_user.username,
         email=current_user.email,
         profile_image_url=current_user.profileImageUrl,
