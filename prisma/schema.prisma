@@ -28,6 +28,11 @@ model User {
   privacySettings   Json?    // Privacy preferences for leaderboards
   preferences       Json?    // User preferences for AI recommendations
   
+  // Personal information
+  name              String?  // User's display name
+  age               Int?     // User's age
+  gender            String?  // User's gender
+  
   // OAuth fields
   authProvider      String   @default("email") // "email", "google"
   googleId          String?  @unique // Google OAuth ID

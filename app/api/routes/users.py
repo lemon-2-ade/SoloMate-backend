@@ -26,7 +26,11 @@ async def get_user_profile(current_user = Depends(get_current_user)):
         tokens=current_user.tokens,
         is_verified=current_user.isVerified,
         joined_at=current_user.joinedAt,
-        last_active_at=current_user.lastActiveAt
+        last_active_at=current_user.lastActiveAt,
+        access_token=None,
+        name=current_user.name,
+        age=current_user.age,
+        gender=current_user.gender
     )
 
 @router.put("/profile", response_model=UserResponse)
@@ -60,6 +64,12 @@ async def update_user_profile(
         update_data["privacySettings"] = user_update.privacy_settings
     if user_update.preferences is not None:
         update_data["preferences"] = user_update.preferences
+    if user_update.name is not None:
+        update_data["name"] = user_update.name
+    if user_update.age is not None:
+        update_data["age"] = user_update.age
+    if user_update.gender is not None:
+        update_data["gender"] = user_update.gender
     
     # Update user
     updated_user = await db.user.update(
@@ -69,7 +79,6 @@ async def update_user_profile(
     
     return UserResponse(
         id=updated_user.id,
-        wallet_address=updated_user.walletAddress,
         username=updated_user.username,
         email=updated_user.email,
         profile_image_url=updated_user.profileImageUrl,
@@ -79,7 +88,11 @@ async def update_user_profile(
         tokens=updated_user.tokens,
         is_verified=updated_user.isVerified,
         joined_at=updated_user.joinedAt,
-        last_active_at=updated_user.lastActiveAt
+        last_active_at=updated_user.lastActiveAt,
+        access_token=None,
+        name=updated_user.name,
+        age=updated_user.age,
+        gender=updated_user.gender
     )
 
 @router.get("/badges", response_model=List[UserBadgeResponse])
@@ -229,7 +242,6 @@ async def get_friends(
     return [
         UserResponse(
             id=friend.id,
-            wallet_address=friend.walletAddress,
             username=friend.username,
             email=friend.email,
             profile_image_url=friend.profileImageUrl,
@@ -239,7 +251,11 @@ async def get_friends(
             tokens=friend.tokens,
             is_verified=friend.isVerified,
             joined_at=friend.joinedAt,
-            last_active_at=friend.lastActiveAt
+            last_active_at=friend.lastActiveAt,
+            access_token=None,
+            name=friend.name,
+            age=friend.age,
+            gender=friend.gender
         )
         for friend in user_with_friends.friends
     ]

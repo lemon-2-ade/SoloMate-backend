@@ -59,6 +59,11 @@ async def register_user(request: UserRegisterRequest, db = Depends(get_db)):
             "lastActiveAt": datetime.utcnow()
         }
     )
+
+    # Create access token
+    access_token = auth_service.create_access_token(
+        data={"sub": user.email, "user_id": user.id}
+    )
     
     return UserResponse(
         id=user.id,
@@ -69,9 +74,13 @@ async def register_user(request: UserRegisterRequest, db = Depends(get_db)):
         level=user.level,
         streak_days=user.streakDays,
         tokens=user.tokens,
+        access_token=access_token,
         is_verified=user.isVerified,
         joined_at=user.joinedAt,
-        last_active_at=user.lastActiveAt
+        last_active_at=user.lastActiveAt,
+        name=user.name,
+        age=user.age,
+        gender=user.gender
     )
 
 @router.post("/login", response_model=TokenResponse)

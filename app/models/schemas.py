@@ -34,6 +34,9 @@ class UserUpdate(BaseModel):
     profile_image_url: Optional[str] = None
     privacy_settings: Optional[Dict[str, Any]] = None
     preferences: Optional[Dict[str, Any]] = None
+    name: Optional[str] = None
+    age: Optional[int] = Field(None, ge=13, le=120, description="Age must be between 13 and 120")
+    gender: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
@@ -47,6 +50,10 @@ class UserResponse(BaseModel):
     is_verified: bool
     joined_at: datetime
     last_active_at: datetime
+    access_token: Optional[str]
+    name: Optional[str]
+    age: Optional[int]
+    gender: Optional[str]
 
 # City models
 class CityCreate(BaseModel):
