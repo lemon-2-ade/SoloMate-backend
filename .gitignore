@@ -29,6 +29,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 validate_config.py
+test_google_oauth.py
 
 # Virtual environments
 .venv/
@@ -91,5 +92,5 @@ prisma/migrations/migration_lock.toml
 .dmypy.json
 dmypy.json
 
-README.md
+*.md
 *.pdf

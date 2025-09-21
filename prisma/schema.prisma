@@ -15,7 +15,7 @@ model User {
   id                String   @id @default(cuid())
   username          String   @unique
   email             String   @unique
-  passwordHash      String
+  passwordHash      String?  // Optional for OAuth users
   profileImageUrl   String?
   joinedAt          DateTime @default(now())
   lastActiveAt      DateTime @default(now())
@@ -27,6 +27,10 @@ model User {
   isVerified        Boolean  @default(false)
   privacySettings   Json?    // Privacy preferences for leaderboards
   preferences       Json?    // User preferences for AI recommendations
+  
+  // OAuth fields
+  authProvider      String   @default("email") // "email", "google"
+  googleId          String?  @unique // Google OAuth ID
   
   // Relations
   badges            UserBadge[]

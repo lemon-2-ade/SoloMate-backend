@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     GOOGLE_MAPS_API_KEY: str = Field(..., description="Google Maps API key")
     OPENAI_API_KEY: str = Field(..., description="OpenAI API key for AI features")
     
+    # Google OAuth - REQUIRED for Google Auth
+    GOOGLE_CLIENT_ID: str = Field(..., description="Google OAuth client ID")
+    GOOGLE_CLIENT_SECRET: str = Field(..., description="Google OAuth client secret")
+    
     # Environment
     ENVIRONMENT: str = Field(default="development", description="Environment (development/production)")
     

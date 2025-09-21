@@ -13,6 +13,9 @@ class UserLoginRequest(BaseModel):
     email: str = Field(..., description="Email address")
     password: str = Field(..., description="Password")
 
+class GoogleAuthRequest(BaseModel):
+    token: str = Field(..., description="Google OAuth access token or ID token")
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
