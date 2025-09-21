@@ -165,6 +165,9 @@ async def get_current_user_info(current_user = Depends(get_current_user)):
     return UserResponse(
         id=current_user.id,
         username=current_user.username,
+        name=current_user.name,
+        age=current_user.age,
+        gender=current_user.gender,
         email=current_user.email,
         profile_image_url=current_user.profileImageUrl,
         total_xp=current_user.totalXP,

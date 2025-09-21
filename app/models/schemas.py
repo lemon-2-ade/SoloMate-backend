@@ -50,10 +50,10 @@ class UserResponse(BaseModel):
     is_verified: bool
     joined_at: datetime
     last_active_at: datetime
-    access_token: Optional[str]
-    name: Optional[str]
-    age: Optional[int]
-    gender: Optional[str]
+    access_token: Optional[str] = None
+    name: Optional[str] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None
 
 # City models
 class CityCreate(BaseModel):
