@@ -257,6 +257,82 @@ class LeaderboardResponse(BaseModel):
     period: LeaderboardPeriod
     entries: List[LeaderboardEntry]
 
+# Exploration models
+class ExplorationCategory(str, Enum):
+    FOOD = "FOOD"
+    SHOPS = "SHOPS"
+    MEDICAL = "MEDICAL"
+    TRAVEL = "TRAVEL"
+    TOURISM = "TOURISM"
+    ENTERTAINMENT = "ENTERTAINMENT"
+    SERVICES = "SERVICES"
+
+class NearbyPlace(BaseModel):
+    place_id: str
+    name: str
+    category: ExplorationCategory
+    rating: Optional[float] = None
+    user_ratings_total: Optional[int] = None
+    vicinity: Optional[str] = None
+    latitude: float
+    longitude: float
+    distance_meters: Optional[float] = None
+    photo_reference: Optional[str] = None
+    is_open_now: Optional[bool] = None
+    price_level: Optional[int] = None
+
+class ExplorationResponse(BaseModel):
+    category: ExplorationCategory
+    places: List[NearbyPlace]
+    total_found: int
+    search_center: Dict[str, float]
+    radius_km: float
+
+# Itinerary models
+class ItineraryTimeSlot(BaseModel):
+    start_time: str  # "09:00 AM"
+    end_time: str    # "10:30 AM"
+    activity_type: str  # "quest", "exploration", "travel", "rest"
+    title: str
+    description: str
+    location: Optional[Dict[str, float]] = None  # {latitude, longitude}
+    estimated_duration: str  # "1 hour 30 minutes"
+    difficulty: Optional[str] = None
+    weather_dependent: bool = False
+
+class DailyItinerary(BaseModel):
+    date: str  # "Tuesday, 23 December"
+    city: str
+    weather: Optional[Dict[str, Any]] = None
+    time_slots: List[ItineraryTimeSlot]
+    total_estimated_time: str
+    safety_notes: List[str] = []
+
+# Checklist models
+class ChecklistItemType(str, Enum):
+    ACCOMMODATION = "ACCOMMODATION"
+    TRANSPORT = "TRANSPORT" 
+    DOCUMENTATION = "DOCUMENTATION"
+    PREPARATION = "PREPARATION"
+    EXPLORATION = "EXPLORATION"
+    SAFETY = "SAFETY"
+
+class ChecklistItem(BaseModel):
+    id: str
+    type: ChecklistItemType
+    title: str
+    description: Optional[str] = None
+    is_completed: bool = False
+    priority: str = "medium"  # low, medium, high
+    due_time: Optional[str] = None
+    location_dependent: bool = False
+
+class DailyChecklist(BaseModel):
+    date: str
+    city: str
+    items: List[ChecklistItem]
+    completion_rate: float  # 0.0 to 1.0
+
 # AI Recommendation models
 class AiRecommendationType(str, Enum):
     QUEST = "QUEST"
@@ -265,6 +341,8 @@ class AiRecommendationType(str, Enum):
     SAFETY_TIP = "SAFETY_TIP"
     FRIEND_SUGGESTION = "FRIEND_SUGGESTION"
     BADGE_OPPORTUNITY = "BADGE_OPPORTUNITY"
+    ITINERARY = "ITINERARY"
+    CHECKLIST = "CHECKLIST"
 
 class AiRecommendationResponse(BaseModel):
     id: str

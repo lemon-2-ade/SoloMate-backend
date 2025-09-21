@@ -11,7 +11,7 @@ from datetime import datetime
 load_dotenv()
 
 from app.core.database import init_db
-from app.api.routes import auth, users, cities, quests, badges, safety, leaderboards, ai_recommendations
+from app.api.routes import auth, users, cities, quests, badges, safety, leaderboards, ai_recommendations, exploration
 from app.core.config import settings
 
 security = HTTPBearer()
@@ -51,6 +51,7 @@ app.include_router(badges.router, prefix="/api/badges", tags=["badges"])
 app.include_router(safety.router, prefix="/api/safety", tags=["safety"])
 app.include_router(leaderboards.router, prefix="/api/leaderboards", tags=["leaderboards"])
 app.include_router(ai_recommendations.router, prefix="/api/ai", tags=["ai-recommendations"])
+app.include_router(exploration.router, prefix="/api/exploration", tags=["exploration"])
 
 @app.get("/health")
 async def health_check():

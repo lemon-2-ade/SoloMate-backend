@@ -8,7 +8,9 @@ from app.services.ai_agent import generate_recommendations
 from app.models.schemas import (
     AiRecommendationResponse,
     AiRecommendationType,
-    MessageResponse
+    MessageResponse,
+    DailyItinerary,
+    ItineraryTimeSlot
 )
 
 router = APIRouter()
@@ -405,3 +407,124 @@ async def update_personalization_settings(
     )
     
     return MessageResponse(message="AI personalization settings updated successfully")
+
+@router.post("/generate-itinerary", response_model=DailyItinerary)
+async def generate_daily_itinerary(
+    city_name: str = Query(..., description="City name for the itinerary"),
+    date: Optional[str] = Query(None, description="Date for the itinerary (e.g., 'Tuesday, 23 December')"),
+    latitude: Optional[float] = Query(None, description="User's current latitude"),
+    longitude: Optional[float] = Query(None, description="User's current longitude"),
+    preferences: Optional[Dict[str, Any]] = None,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Generate AI-powered daily itinerary"""
+    
+    try:
+        # Prepare user location if provided
+        user_location = None
+        if latitude is not None and longitude is not None:
+            user_location = {"latitude": latitude, "longitude": longitude}
+        
+        # Set default date if not provided
+        if not date:
+            from datetime import datetime
+            date = datetime.now().strftime("%A, %d %B")
+        
+        # Prepare context for itinerary generation
+        itinerary_context = {
+            "city_name": city_name,
+            "date": date,
+            "preferences": preferences or {},
+            "weather_consideration": True,
+            "include_quests": True,
+            "include_exploration": True
+        }
+        
+        # Generate itinerary using AI agent
+        recommendations_data = await generate_recommendations(
+            user_id=current_user.id,
+            recommendation_type="ITINERARY",
+            user_location=user_location,
+            context={"itinerary_context": itinerary_context}
+        )
+        
+        # Convert AI recommendations to structured itinerary
+        time_slots = []
+        safety_notes = []
+        
+        for rec in recommendations_data["recommendations"]:
+            time_slot = ItineraryTimeSlot(
+                start_time=rec.get("start_time", "09:00 AM"),
+                end_time=rec.get("end_time", "10:00 AM"),
+                activity_type=rec.get("activity_type", "exploration"),
+                title=rec.get("title", "Activity"),
+                description=rec.get("description", "Explore and enjoy"),
+                location=rec.get("location"),
+                estimated_duration=rec.get("estimated_duration", "1 hour"),
+                difficulty=rec.get("difficulty"),
+                weather_dependent=rec.get("weather_dependent", False)
+            )
+            time_slots.append(time_slot)
+        
+        # Add safety notes based on user profile and AI analysis
+        if recommendations_data.get("user_persona", {}).get("risk_tolerance") == "low":
+            safety_notes.extend([
+                "Stay in well-lit and crowded areas",
+                "Share your itinerary with someone",
+                "Keep emergency contacts handy"
+            ])
+        
+        # Calculate total estimated time
+        total_minutes = len(time_slots) * 90  # Assume 1.5 hours average per activity
+        total_hours = total_minutes // 60
+        remaining_minutes = total_minutes % 60
+        total_estimated_time = f"{total_hours} hours {remaining_minutes} minutes"
+        
+        return DailyItinerary(
+            date=date,
+            city=city_name,
+            weather={"status": "Check local weather", "temperature": "Varies"},
+            time_slots=time_slots,
+            total_estimated_time=total_estimated_time,
+            safety_notes=safety_notes
+        )
+        
+    except Exception as e:
+        # Fallback itinerary
+        fallback_slots = [
+            ItineraryTimeSlot(
+                start_time="09:00 AM",
+                end_time="10:30 AM",
+                activity_type="exploration",
+                title="Morning City Walk",
+                description="Explore the city center and main attractions",
+                estimated_duration="1 hour 30 minutes",
+                weather_dependent=True
+            ),
+            ItineraryTimeSlot(
+                start_time="11:00 AM",
+                end_time="12:30 PM",
+                activity_type="quest",
+                title="Local Heritage Quest",
+                description="Discover historical landmarks and cultural sites",
+                estimated_duration="1 hour 30 minutes",
+                difficulty="EASY"
+            ),
+            ItineraryTimeSlot(
+                start_time="02:00 PM",
+                end_time="04:00 PM",
+                activity_type="exploration",
+                title="Local Food Discovery",
+                description="Try authentic local cuisine and visit food markets",
+                estimated_duration="2 hours"
+            )
+        ]
+        
+        return DailyItinerary(
+            date=date or datetime.now().strftime("%A, %d %B"),
+            city=city_name,
+            time_slots=fallback_slots,
+            total_estimated_time="5 hours",
+            safety_notes=["Stay hydrated", "Keep local emergency numbers", "Use official transportation"]
+        )

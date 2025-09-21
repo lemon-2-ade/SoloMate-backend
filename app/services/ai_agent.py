@@ -219,6 +219,8 @@ class SoloMateAIAgent:
             recommendations = await self._generate_route_recommendations(state)
         elif recommendation_type == "SAFETY_TIP":
             recommendations = await self._generate_safety_recommendations(state)
+        elif recommendation_type == "ITINERARY":
+            recommendations = await self._generate_itinerary_recommendations(state)
         else:
             recommendations = []
         
@@ -343,6 +345,101 @@ class SoloMateAIAgent:
         
         return tips
     
+    async def _generate_itinerary_recommendations(self, state: AgentState) -> List[Dict[str, Any]]:
+        """Generate daily itinerary recommendations"""
+        
+        persona = state["context"]["user_persona"]
+        location_context = state["context"]["location_context"]
+        safety_req = state["context"]["safety_requirements"]
+        quest_patterns = state["context"]["quest_patterns"]
+        
+        # Get context for itinerary generation
+        user_location = state.get("user_location", {})
+        additional_context = state.get("context", {}).get("itinerary_context", {})
+        
+        itinerary_prompt = f"""
+        Generate a personalized daily itinerary for a user with this profile:
+        
+        User Persona: {persona}
+        Location Context: {location_context}
+        Safety Requirements: {safety_req}
+        Quest Preferences: {quest_patterns}
+        
+        Additional Context: {additional_context}
+        
+        Create a balanced daily schedule that includes:
+        - Morning activities (9 AM - 12 PM)
+        - Afternoon exploration (12 PM - 6 PM) 
+        - Evening activities (6 PM - 9 PM)
+        
+        Consider:
+        - User's experience level: {persona.get('experience_level', 'beginner')}
+        - Preferred activities: {persona.get('interests', [])}
+        - Safety requirements based on risk tolerance: {persona.get('risk_tolerance', 'medium')}
+        - Local time and optimal activity timing
+        
+        Generate itinerary in this JSON format:
+        [
+            {{
+                "start_time": "09:00 AM",
+                "end_time": "10:30 AM", 
+                "activity_type": "quest",
+                "title": "Morning Heritage Walk",
+                "description": "Explore historic downtown area with guided audio tour",
+                "location": {{"latitude": 0.0, "longitude": 0.0}},
+                "estimated_duration": "1 hour 30 minutes",
+                "difficulty": "EASY",
+                "weather_dependent": false,
+                "confidence": 0.85
+            }}
+        ]
+        """
+        
+        try:
+            response = await self.llm.ainvoke([HumanMessage(content=itinerary_prompt)])
+            itinerary_items = json.loads(response.content)
+            return itinerary_items
+        except Exception as e:
+            # Fallback itinerary
+            return [
+                {
+                    "start_time": "09:00 AM",
+                    "end_time": "10:30 AM",
+                    "activity_type": "quest",
+                    "title": "Local Walking Tour",
+                    "description": "Explore nearby attractions at your own pace",
+                    "location": user_location,
+                    "estimated_duration": "1 hour 30 minutes",
+                    "difficulty": "EASY",
+                    "weather_dependent": False,
+                    "confidence": 0.7
+                },
+                {
+                    "start_time": "11:00 AM",
+                    "end_time": "12:30 PM",
+                    "activity_type": "exploration",
+                    "title": "Local Food Discovery",
+                    "description": "Try authentic local cuisine at recommended spots",
+                    "location": user_location,
+                    "estimated_duration": "1 hour 30 minutes",
+                    "difficulty": "EASY",
+                    "weather_dependent": False,
+                    "confidence": 0.8
+                },
+                {
+                    "start_time": "02:00 PM",
+                    "end_time": "04:00 PM",
+                    "activity_type": "quest",
+                    "title": "Cultural Heritage Quest",
+                    "description": "Visit museums and cultural sites in the area",
+                    "location": user_location,
+                    "estimated_duration": "2 hours",
+                    "difficulty": "MEDIUM",
+                    "weather_dependent": False,
+                    "confidence": 0.75
+                }
+            ]
+
     async def _filter_and_rank_recommendations(self, state: AgentState) -> AgentState:
         """Filter and rank recommendations based on user context"""
         
