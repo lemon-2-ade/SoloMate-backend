@@ -1,0 +1,405 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-py"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model with email-based authentication
+model User {
+  id                String   @id @default(cuid())
+  username          String   @unique
+  email             String   @unique
+  passwordHash      String
+  profileImageUrl   String?
+  joinedAt          DateTime @default(now())
+  lastActiveAt      DateTime @default(now())
+  totalXP           Int      @default(0)
+  level             Int      @default(1)
+  streakDays        Int      @default(0)
+  lastStreakDate    DateTime?
+  tokens            Int      @default(0) // Soft currency for in-app purchases
+  isVerified        Boolean  @default(false)
+  privacySettings   Json?    // Privacy preferences for leaderboards
+  preferences       Json?    // User preferences for AI recommendations
+  
+  // Relations
+  badges            UserBadge[]
+  questProgresses   QuestProgress[]
+  safetyReports     SafetyReport[]
+  communityTips     CommunityTip[]
+  friends           User[]              @relation("UserFriends")
+  friendOf          User[]              @relation("UserFriends") 
+  leaderboardEntries LeaderboardEntry[]
+  locationProofs    LocationProof[]
+  aiRecommendations AiRecommendation[]
+
+  @@map("users")
+}
+
+// City model for different locations
+model City {
+  id              String   @id @default(cuid())
+  name            String
+  country         String
+  latitude        Float
+  longitude       Float
+  description     String?
+  imageUrl        String?
+  safetyIndex     Float    @default(0.0) // Live safety index 0-10
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  quests          Quest[]
+  safetyReports   SafetyReport[]
+  leaderboards    Leaderboard[]
+  cityStats       CityStats?
+
+  @@map("cities")
+}
+
+// Quest categories and types
+enum QuestType {
+  DAILY
+  WEEKLY
+  HERITAGE
+  HIDDEN_GEMS
+  SAFETY_CHALLENGE
+  COMMUNITY_PICKS
+}
+
+enum QuestDifficulty {
+  EASY
+  MEDIUM
+  HARD
+  EXTREME
+}
+
+// Quest model for location-based challenges
+model Quest {
+  id                String          @id @default(cuid())
+  title             String
+  description       String
+  type              QuestType
+  difficulty        QuestDifficulty
+  cityId            String
+  latitude          Float
+  longitude         Float
+  radius            Float           // Geo-fence radius in meters
+  xpReward          Int
+  tokenReward       Int
+  requiredLevel     Int             @default(1)
+  isActive          Boolean         @default(true)
+  timeLimit         Int?            // Time limit in hours
+  availableFrom     DateTime?       // Quest availability window
+  availableTo       DateTime?
+  maxCompletions    Int?            // Max users who can complete this quest
+  currentCompletions Int            @default(0)
+  requirements      Json?           // Additional requirements (time of day, etc.)
+  hints             String[]
+  partnerInfo       Json?           // Partner event details, ticket scanning
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  // Relations
+  city              City            @relation(fields: [cityId], references: [id])
+  questProgresses   QuestProgress[]
+  questPoints       QuestPoint[]
+  badgeRewards      Badge[]         @relation("QuestBadgeRewards")
+
+  @@map("quests")
+}
+
+// Individual points within a quest (for multi-point quests)
+model QuestPoint {
+  id          String  @id @default(cuid())
+  questId     String
+  name        String
+  description String?
+  latitude    Float
+  longitude   Float
+  radius      Float   @default(50.0) // Individual point radius
+  order       Int     // Order in quest sequence
+  isOptional  Boolean @default(false)
+  
+  // Relations
+  quest       Quest   @relation(fields: [questId], references: [id], onDelete: Cascade)
+  proofs      LocationProof[]
+
+  @@map("quest_points")
+}
+
+// Quest progress tracking
+model QuestProgress {
+  id            String    @id @default(cuid())
+  userId        String
+  questId       String
+  status        String    @default("started") // started, in_progress, completed, failed
+  pointsVisited Json?     // Array of visited quest point IDs
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  proofData     Json?     // Proof of completion data
+  
+  // Relations
+  user          User      @relation(fields: [userId], references: [id])
+  quest         Quest     @relation(fields: [questId], references: [id])
+
+  @@unique([userId, questId])
+  @@map("quest_progress")
+}
+
+// Badge types and rarity
+enum BadgeRarity {
+  COMMON
+  UNCOMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+enum BadgeType {
+  LANDMARK      // Visit well-known places
+  EXPLORER      // Visit 3 curated points in neighborhood  
+  NIGHT_OWL     // Visit nighttime-safe venue after 7 PM
+  CULTURE       // Attend partner events
+  COMMUNITY     // Contribute safety alert or tip
+  LEGEND        // Major milestones (10 countries/cities)
+  STREAK        // Streak rewards
+  LEVEL         // Level achievements
+  SPECIAL       // Special events or achievements
+}
+
+// Badge definitions
+model Badge {
+  id              String      @id @default(cuid())
+  name            String
+  description     String
+  type            BadgeType
+  rarity          BadgeRarity
+  imageUrl        String
+  animationUrl    String?
+  requirements    Json        // Requirements to earn this badge
+  xpReward        Int         @default(0)
+  tokenReward     Int         @default(0)
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  
+  // Relations
+  userBadges      UserBadge[]
+  questRewards    Quest[]     @relation("QuestBadgeRewards")
+
+  @@map("badges")
+}
+
+// User badge ownership (digital badge records)
+model UserBadge {
+  id              String    @id @default(cuid())
+  userId          String
+  badgeId         String
+  mintedAt        DateTime  @default(now())
+  metadata        Json?     // Badge metadata and proof data
+  
+  // Relations
+  user            User      @relation(fields: [userId], references: [id])
+  badge           Badge     @relation(fields: [badgeId], references: [id])
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+// Location proof system
+model LocationProof {
+  id            String     @id @default(cuid())
+  userId        String
+  questPointId  String?
+  latitude      Float
+  longitude     Float
+  accuracy      Float      // GPS accuracy in meters
+  timestamp     DateTime   @default(now())
+  deviceInfo    Json?      // Device information for verification
+  photoUrl      String?    // Optional photo proof
+  signature     String?    // Cryptographic proof signature
+  isVerified    Boolean    @default(false)
+  verifiedAt    DateTime?
+  
+  // Relations
+  user          User       @relation(fields: [userId], references: [id])
+  questPoint    QuestPoint? @relation(fields: [questPointId], references: [id])
+
+  @@map("location_proofs")
+}
+
+// Safety reporting system
+model SafetyReport {
+  id          String           @id @default(cuid())
+  userId      String
+  cityId      String
+  latitude    Float
+  longitude   Float
+  type        SafetyReportType
+  severity    Int              @default(5) // 1-10 scale
+  description String
+  isVerified  Boolean          @default(false)
+  isActive    Boolean          @default(true)
+  reportedAt  DateTime         @default(now())
+  verifiedAt  DateTime?
+  
+  // Relations
+  user        User             @relation(fields: [userId], references: [id])
+  city        City             @relation(fields: [cityId], references: [id])
+
+  @@map("safety_reports")
+}
+
+enum SafetyReportType {
+  UNSAFE_AREA
+  WELL_LIT
+  POLICE_PRESENCE
+  CROWDED_AREA
+  EMERGENCY_SERVICES
+  UNSAFE_TRANSPORT
+  SAFE_TRANSPORT
+  TOURIST_SCAM
+  PICKPOCKET_RISK
+  OTHER
+}
+
+// Community tips from users
+model CommunityTip {
+  id          String   @id @default(cuid())
+  userId      String
+  cityId      String?
+  questId     String?
+  title       String
+  content     String
+  upvotes     Int      @default(0)
+  downvotes   Int      @default(0)
+  isVerified  Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("community_tips")
+}
+
+// Leaderboard system
+model Leaderboard {
+  id          String             @id @default(cuid())
+  name        String
+  type        LeaderboardType
+  scope       LeaderboardScope
+  cityId      String?
+  period      LeaderboardPeriod
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  
+  // Relations
+  city        City?              @relation(fields: [cityId], references: [id])
+  entries     LeaderboardEntry[]
+
+  @@map("leaderboards")
+}
+
+enum LeaderboardType {
+  XP
+  BADGES
+  STREAKS
+  QUESTS_COMPLETED
+  SAFETY_SCORE
+}
+
+enum LeaderboardScope {
+  GLOBAL
+  CITY
+  FRIENDS
+}
+
+enum LeaderboardPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  ALL_TIME
+}
+
+model LeaderboardEntry {
+  id            String      @id @default(cuid())
+  leaderboardId String
+  userId        String
+  rank          Int
+  score         Int
+  period        String      // Time period identifier
+  updatedAt     DateTime    @updatedAt
+  
+  // Relations
+  leaderboard   Leaderboard @relation(fields: [leaderboardId], references: [id])
+  user          User        @relation(fields: [userId], references: [id])
+
+  @@unique([leaderboardId, userId, period])
+  @@map("leaderboard_entries")
+}
+
+// City statistics
+model CityStats {
+  id                String   @id @default(cuid())
+  cityId            String   @unique
+  totalQuests       Int      @default(0)
+  activeUsers       Int      @default(0)
+  averageSafetyScore Float   @default(0.0)
+  totalBadgesMinted Int      @default(0)
+  lastUpdated       DateTime @updatedAt
+  
+  // Relations
+  city              City     @relation(fields: [cityId], references: [id])
+
+  @@map("city_stats")
+}
+
+// AI Recommendation system
+model AiRecommendation {
+  id          String               @id @default(cuid())
+  userId      String
+  type        AiRecommendationType
+  content     Json                 // Recommendation data
+  reason      String               // Why this was recommended
+  confidence  Float                // AI confidence score 0-1
+  isActive    Boolean              @default(true)
+  isViewed    Boolean              @default(false)
+  isAccepted  Boolean              @default(false)
+  createdAt   DateTime             @default(now())
+  expiresAt   DateTime?
+  
+  // Relations
+  user        User                 @relation(fields: [userId], references: [id])
+
+  @@map("ai_recommendations")
+}
+
+enum AiRecommendationType {
+  QUEST
+  CITY
+  ROUTE
+  SAFETY_TIP
+  FRIEND_SUGGESTION
+  BADGE_OPPORTUNITY
+}
+
+// System configuration
+model SystemConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_config")
+}
