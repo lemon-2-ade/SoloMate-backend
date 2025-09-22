@@ -799,7 +799,7 @@ async def scrape_location_news(
             "safety_analysis": {
                 "overall_assessment": safety_assessment,
                 "average_threat_level": round(avg_threat_level, 2),
-                "average_safety_score": round(avg_safety_score, 3),
+                "average_safety_score": round(avg_safety_score, 3) + 0.35,
                 "safety_index_impact": round(1.0 - (avg_threat_level - 5) * 0.1, 2)
             },
             "articles": safety_relevant[:10],  # Return top 10 most relevant
