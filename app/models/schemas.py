@@ -308,6 +308,43 @@ class DailyItinerary(BaseModel):
     total_estimated_time: str
     safety_notes: List[str] = []
 
+# Database Itinerary models
+class ItineraryCreate(BaseModel):
+    title: str = Field(..., description="Title for the itinerary")
+    date: str = Field(..., description="Date of the itinerary")
+    city_name: str = Field(..., description="City name")
+    city_id: Optional[str] = Field(None, description="City ID if available")
+    time_slots: List[ItineraryTimeSlot] = Field(..., description="List of time slots")
+    total_estimated_time: str = Field(..., description="Total estimated time")
+    safety_notes: List[str] = Field(default=[], description="Safety notes")
+    weather: Optional[Dict[str, Any]] = Field(None, description="Weather information")
+    preferences: Optional[Dict[str, Any]] = Field(None, description="User preferences used")
+    ai_context: Optional[Dict[str, Any]] = Field(None, description="AI generation context")
+
+class ItineraryResponse(BaseModel):
+    id: str
+    user_id: str
+    city_id: Optional[str]
+    title: str
+    date: str
+    city_name: str
+    time_slots: List[ItineraryTimeSlot]
+    total_estimated_time: str
+    safety_notes: List[str]
+    weather: Optional[Dict[str, Any]]
+    preferences: Optional[Dict[str, Any]]
+    ai_context: Optional[Dict[str, Any]]
+    quests_generated: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+class ItineraryUpdate(BaseModel):
+    title: Optional[str] = None
+    is_active: Optional[bool] = None
+    time_slots: Optional[List[ItineraryTimeSlot]] = None
+    safety_notes: Optional[List[str]] = None
+
 # Checklist models
 class ChecklistItemType(str, Enum):
     ACCOMMODATION = "ACCOMMODATION"

@@ -47,6 +47,7 @@ model User {
   leaderboardEntries LeaderboardEntry[]
   locationProofs    LocationProof[]
   aiRecommendations AiRecommendation[]
+  itineraries       Itinerary[]
 
   @@map("users")
 }
@@ -70,6 +71,7 @@ model City {
   safetyReports   SafetyReport[]
   leaderboards    Leaderboard[]
   cityStats       CityStats?
+  itineraries     Itinerary[]
 
   @@map("cities")
 }
@@ -400,6 +402,33 @@ enum AiRecommendationType {
   SAFETY_TIP
   FRIEND_SUGGESTION
   BADGE_OPPORTUNITY
+  ITINERARY
+}
+
+// Itinerary model for saved travel itineraries
+model Itinerary {
+  id                  String   @id @default(cuid())
+  userId              String
+  cityId              String?  
+  title               String
+  date                String
+  cityName            String
+  timeSlots           Json     // Array of time slot objects
+  totalEstimatedTime  String
+  safetyNotes         String[]
+  weather             Json?
+  preferences         Json?
+  aiContext           Json?
+  questsGenerated     Int      @default(0)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  user                User     @relation(fields: [userId], references: [id])
+  city                City?    @relation(fields: [cityId], references: [id])
+
+  @@map("itineraries")
 }
 
 // System configuration

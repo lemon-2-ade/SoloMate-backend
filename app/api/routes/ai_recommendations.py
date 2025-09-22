@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, status, Query
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+import json
 
 from app.core.database import get_db
 from app.api.routes.auth import get_current_user
@@ -10,7 +11,9 @@ from app.models.schemas import (
     AiRecommendationType,
     MessageResponse,
     DailyItinerary,
-    ItineraryTimeSlot
+    ItineraryTimeSlot,
+    ItineraryCreate,
+    ItineraryResponse
 )
 
 router = APIRouter()
@@ -428,7 +431,6 @@ async def generate_daily_itinerary(
         
         # Set default date if not provided
         if not date:
-            from datetime import datetime
             date = datetime.now().strftime("%A, %d %B")
         
         # Prepare context for itinerary generation
@@ -481,7 +483,8 @@ async def generate_daily_itinerary(
         remaining_minutes = total_minutes % 60
         total_estimated_time = f"{total_hours} hours {remaining_minutes} minutes"
         
-        return DailyItinerary(
+        # Create the itinerary response
+        itinerary = DailyItinerary(
             date=date,
             city=city_name,
             weather={"status": "Check local weather", "temperature": "Varies"},
@@ -489,6 +492,93 @@ async def generate_daily_itinerary(
             total_estimated_time=total_estimated_time,
             safety_notes=safety_notes
         )
+        
+        # Save to database
+        try:
+            # Get city_id if available
+            city_id = None
+            if user_location:
+                # Try to find the city in our database based on name
+                city = await db.city.find_first(
+                    where={
+                        "name": {"contains": city_name, "mode": "insensitive"},
+                        "isActive": True
+                    }
+                )
+                if city:
+                    city_id = city.id
+            
+            # Create database record
+            
+            # Use native JSON serialization for better compatibility            # Convert time slots to JSON-compatible format
+            time_slots_json = []
+            for slot in time_slots:
+                slot_dict = {
+                    "start_time": slot.start_time,
+                    "end_time": slot.end_time,
+                    "activity_type": slot.activity_type,
+                    "title": slot.title,
+                    "description": slot.description,
+                    "estimated_duration": slot.estimated_duration,
+                    "weather_dependent": slot.weather_dependent
+                }
+                # Only add optional fields if they exist and are not None
+                if slot.location:
+                    slot_dict["location"] = slot.location
+                if slot.difficulty:
+                    slot_dict["difficulty"] = slot.difficulty
+                time_slots_json.append(slot_dict)
+            
+            # Ensure JSON serialization works and validate data
+            try:
+                time_slots_str = json.dumps(time_slots_json)
+                time_slots_parsed = json.loads(time_slots_str)
+            except (TypeError, ValueError) as json_error:
+                print(f"⚠️ JSON serialization error: {json_error}")
+                # Fallback to simple structure if serialization fails
+                time_slots_parsed = [
+                    {
+                        "start_time": slot.get("start_time", "09:00 AM"),
+                        "end_time": slot.get("end_time", "10:00 AM"),
+                        "activity_type": slot.get("activity_type", "exploration"),
+                        "title": slot.get("title", "Activity"),
+                        "description": slot.get("description", "Explore and enjoy"),
+                        "estimated_duration": slot.get("estimated_duration", "1 hour"),
+                        "weather_dependent": bool(slot.get("weather_dependent", False))
+                    }
+                    for slot in time_slots_json
+                ]
+            
+            # Create data for database insertion
+            create_data = {
+                "userId": current_user.id,
+                "title": f"{city_name} Daily Itinerary",
+                "date": date,
+                "cityName": city_name,
+                "timeSlots": None,
+                "totalEstimatedTime": total_estimated_time,
+                "safetyNotes": safety_notes,
+                "weather": {"status": "Check local weather", "temperature": "Varies"},
+                "preferences": preferences or {},
+                "aiContext": recommendations_data.get("user_persona", {}),
+                "questsGenerated": len([slot for slot in time_slots if slot.activity_type == "quest"])
+            }
+            
+            # Add cityId if it exists
+            if city_id:
+                create_data["cityId"] = city_id
+            
+            db_itinerary = await db.itinerary.create(data=create_data)
+            print(f"✅ Successfully saved itinerary to database with ID: {db_itinerary.id}")
+        except Exception as db_error:
+            # Log the error but don't fail the request
+            print(f"❌ Failed to save itinerary to database: {db_error}")
+            # Don't print full traceback in production, just log the error type
+            print(f"Error type: {type(db_error).__name__}")
+            if hasattr(db_error, 'code'):
+                print(f"Error code: {db_error.code}")
+        
+        return itinerary
         
     except Exception as e:
         # Fallback itinerary
@@ -521,10 +611,241 @@ async def generate_daily_itinerary(
             )
         ]
         
-        return DailyItinerary(
+        # Create fallback itinerary
+        fallback_itinerary = DailyItinerary(
             date=date or datetime.now().strftime("%A, %d %B"),
             city=city_name,
             time_slots=fallback_slots,
             total_estimated_time="5 hours",
             safety_notes=["Stay hydrated", "Keep local emergency numbers", "Use official transportation"]
+        )
+        
+        # Save fallback to database
+        try:
+            # Get city_id if available
+            city_id = None
+            if user_location:
+                # Try to find the city in our database based on name
+                city = await db.city.find_first(
+                    where={
+                        "name": {"contains": city_name, "mode": "insensitive"},
+                        "isActive": True
+                    }
+                )
+                if city:
+                    city_id = city.id
+            
+            # Create database record for fallback
+            # Convert fallback time slots to plain dictionaries for JSON storage
+            fallback_time_slots_json = []
+            for slot in fallback_slots:
+                slot_dict = {
+                    "start_time": slot.start_time,
+                    "end_time": slot.end_time,
+                    "activity_type": slot.activity_type,
+                    "title": slot.title,
+                    "description": slot.description,
+                    "estimated_duration": slot.estimated_duration,
+                    "weather_dependent": slot.weather_dependent
+                }
+                # Only add optional fields if they exist and are not None
+                if slot.location:
+                    slot_dict["location"] = slot.location
+                if slot.difficulty:
+                    slot_dict["difficulty"] = slot.difficulty
+                fallback_time_slots_json.append(slot_dict)
+            
+            fallback_create_data = {
+                "userId": current_user.id,
+                "title": f"{city_name} Daily Itinerary (Fallback)",
+                "date": date or datetime.now().strftime("%A, %d %B"),
+                "cityName": city_name,
+                "timeSlots": fallback_time_slots_json,
+                "totalEstimatedTime": "5 hours",
+                "safetyNotes": ["Stay hydrated", "Keep local emergency numbers", "Use official transportation"],
+                "weather": None,
+                "preferences": preferences or {},
+                "aiContext": {"fallback": True, "error": str(e)},
+                "questsGenerated": len([slot for slot in fallback_slots if slot.activity_type == "quest"])
+            }
+            
+            # Add city ID only if it exists
+            if city_id:
+                fallback_create_data["cityId"] = city_id
+                
+            db_itinerary = await db.itinerary.create(data=fallback_create_data)
+            print(f"✅ Successfully saved fallback itinerary to database with ID: {db_itinerary.id}")
+        except Exception as db_error:
+            # Log the error but don't fail the request
+            print(f"❌ Failed to save fallback itinerary to database: {db_error}")
+            print(f"Error type: {type(db_error).__name__}")
+            if hasattr(db_error, 'code'):
+                print(f"Error code: {db_error.code}")
+        
+        return fallback_itinerary
+
+
+@router.get("/itineraries", response_model=List[ItineraryResponse])
+async def get_user_itineraries(
+    limit: int = Query(10, description="Maximum number of itineraries to return", le=50),
+    offset: int = Query(0, description="Number of itineraries to skip"),
+    city_name: Optional[str] = Query(None, description="Filter by city name"),
+    current_user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Get user's saved itineraries"""
+    
+    try:
+        # Build query filters
+        where_clause = {"userId": current_user.id, "isActive": True}
+        if city_name:
+            where_clause["cityName"] = {"contains": city_name, "mode": "insensitive"}
+        
+        # Get itineraries from database
+        itineraries = await db.itinerary.find_many(
+            where=where_clause,
+            order={"createdAt": "desc"},
+            take=limit,
+            skip=offset,
+            include={"city": True}
+        )
+        
+        # Convert to response format
+        result = []
+        for itinerary in itineraries:
+            # Convert timeSlots from JSON to ItineraryTimeSlot objects
+            time_slots = [
+                ItineraryTimeSlot(**slot) for slot in itinerary.timeSlots
+            ]
+            
+            result.append(ItineraryResponse(
+                id=itinerary.id,
+                user_id=itinerary.userId,
+                city_id=itinerary.cityId,
+                title=itinerary.title,
+                date=itinerary.date,
+                city_name=itinerary.cityName,
+                time_slots=time_slots,
+                total_estimated_time=itinerary.totalEstimatedTime,
+                safety_notes=itinerary.safetyNotes,
+                weather=itinerary.weather,
+                preferences=itinerary.preferences,
+                ai_context=itinerary.aiContext,
+                quests_generated=itinerary.questsGenerated,
+                is_active=itinerary.isActive,
+                created_at=itinerary.createdAt,
+                updated_at=itinerary.updatedAt
+            ))
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve itineraries: {str(e)}"
+        )
+
+
+@router.get("/itineraries/{itinerary_id}", response_model=ItineraryResponse)
+async def get_itinerary(
+    itinerary_id: str,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Get a specific itinerary by ID"""
+    
+    try:
+        # Get itinerary from database
+        itinerary = await db.itinerary.find_unique(
+            where={"id": itinerary_id},
+            include={"city": True}
+        )
+        
+        if not itinerary:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Itinerary not found"
+            )
+        
+        # Check if user owns this itinerary
+        if itinerary.userId != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Convert timeSlots from JSON to ItineraryTimeSlot objects
+        time_slots = [
+            ItineraryTimeSlot(**slot) for slot in itinerary.timeSlots
+        ]
+        
+        return ItineraryResponse(
+            id=itinerary.id,
+            user_id=itinerary.userId,
+            city_id=itinerary.cityId,
+            title=itinerary.title,
+            date=itinerary.date,
+            city_name=itinerary.cityName,
+            time_slots=time_slots,
+            total_estimated_time=itinerary.totalEstimatedTime,
+            safety_notes=itinerary.safetyNotes,
+            weather=itinerary.weather,
+            preferences=itinerary.preferences,
+            ai_context=itinerary.aiContext,
+            quests_generated=itinerary.questsGenerated,
+            is_active=itinerary.isActive,
+            created_at=itinerary.createdAt,
+            updated_at=itinerary.updatedAt
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve itinerary: {str(e)}"
+        )
+
+
+@router.delete("/itineraries/{itinerary_id}", response_model=MessageResponse)
+async def delete_itinerary(
+    itinerary_id: str,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Delete an itinerary (soft delete by marking inactive)"""
+    
+    try:
+        # Get itinerary from database
+        itinerary = await db.itinerary.find_unique(
+            where={"id": itinerary_id}
+        )
+        
+        if not itinerary:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Itinerary not found"
+            )
+        
+        # Check if user owns this itinerary
+        if itinerary.userId != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Soft delete by marking inactive
+        await db.itinerary.update(
+            where={"id": itinerary_id},
+            data={"isActive": False}
+        )
+        
+        return MessageResponse(message="Itinerary deleted successfully")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete itinerary: {str(e)}"
         )
