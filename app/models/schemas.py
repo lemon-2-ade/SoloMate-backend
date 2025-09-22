@@ -412,6 +412,23 @@ class AiRecommendationResponse(BaseModel):
     created_at: datetime
     expires_at: Optional[datetime]
 
+class AiItineraryGenerationRequest(BaseModel):
+    city_name: str = Field(..., description="City name for the itinerary", min_length=2, max_length=100)
+    date: Optional[str] = Field(None, description="Date for the itinerary (e.g., 'Tuesday, 23 December')")
+    latitude: Optional[float] = Field(None, description="User's current latitude", ge=-90, le=90)
+    longitude: Optional[float] = Field(None, description="User's current longitude", ge=-180, le=180)
+    generate_quests: bool = Field(True, description="Generate quests for itinerary locations")
+    auto_save: bool = Field(True, description="Automatically save itinerary to database")
+    preferences: Optional[Dict[str, Any]] = Field(None, description="Additional user preferences for generation")
+
+class AiItineraryGenerationResponse(BaseModel):
+    success: bool
+    message: str
+    itinerary: Dict[str, Any]
+    generated_quests: List[Dict[str, Any]]
+    user_preferences_used: Optional[Dict[str, Any]]
+    quest_generation_summary: Optional[Dict[str, Any]]
+
 # Journal Entry schemas
 class JournalEntryCreate(BaseModel):
     content: str = Field(..., min_length=1, max_length=1000, description="Journal entry content")
