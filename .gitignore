@@ -32,6 +32,7 @@ validate_config.py
 test_google_oauth.py
 
 # Virtual environments
+my_new_env/
 .venv/
 venv/
 ENV/
