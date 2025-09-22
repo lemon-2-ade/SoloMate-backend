@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, status, Query
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import json
+import uuid
 
 from app.core.database import get_db
 from app.api.routes.auth import get_current_user
@@ -13,10 +14,32 @@ from app.models.schemas import (
     DailyItinerary,
     ItineraryTimeSlot,
     ItineraryCreate,
-    ItineraryResponse
+    ItineraryResponse,
+    QuestType,
+    QuestDifficulty
 )
 
 router = APIRouter()
+
+def _calculate_xp_reward(difficulty: QuestDifficulty) -> int:
+    """Calculate XP reward based on quest difficulty"""
+    rewards = {
+        QuestDifficulty.EASY: 50,
+        QuestDifficulty.MEDIUM: 100,
+        QuestDifficulty.HARD: 200,
+        QuestDifficulty.EXTREME: 300
+    }
+    return rewards.get(difficulty, 50)
+
+def _calculate_token_reward(difficulty: QuestDifficulty) -> int:
+    """Calculate token reward based on quest difficulty"""
+    rewards = {
+        QuestDifficulty.EASY: 10,
+        QuestDifficulty.MEDIUM: 25,
+        QuestDifficulty.HARD: 50,
+        QuestDifficulty.EXTREME: 100
+    }
+    return rewards.get(difficulty, 10)
 
 @router.post("/recommendations/{recommendation_type}")
 async def get_ai_recommendations(
@@ -411,36 +434,52 @@ async def update_personalization_settings(
     
     return MessageResponse(message="AI personalization settings updated successfully")
 
-@router.post("/generate-itinerary", response_model=DailyItinerary)
+@router.post("/generate-itinerary")
 async def generate_daily_itinerary(
     city_name: str = Query(..., description="City name for the itinerary"),
     date: Optional[str] = Query(None, description="Date for the itinerary (e.g., 'Tuesday, 23 December')"),
     latitude: Optional[float] = Query(None, description="User's current latitude"),
     longitude: Optional[float] = Query(None, description="User's current longitude"),
-    preferences: Optional[Dict[str, Any]] = None,
+    generate_quests: bool = Query(True, description="Generate quests for itinerary locations"),
+    auto_save: bool = Query(True, description="Automatically save itinerary to database"),
     current_user = Depends(get_current_user),
     db = Depends(get_db)
 ):
-    """Generate AI-powered daily itinerary"""
+    """
+    Generate AI-powered daily itinerary with automatic quest creation
+    
+    This endpoint implements the complete user flow:
+    1. Uses user preferences for personalized itinerary generation
+    2. Creates quests for each location in the itinerary
+    3. Links quests to the itinerary in the database
+    4. Returns both itinerary and generated quests
+    """
     
     try:
-        # Prepare user location if provided
+        # Get user preferences from database
+        user = await db.user.find_unique(
+            where={"id": current_user.id},
+            select={"preferences": True}
+        )
+        
+        user_preferences = user.preferences if user and user.preferences else {}
+        
         user_location = None
         if latitude is not None and longitude is not None:
             user_location = {"latitude": latitude, "longitude": longitude}
-        
-        # Set default date if not provided
+
         if not date:
             date = datetime.now().strftime("%A, %d %B")
         
-        # Prepare context for itinerary generation
+        # Prepare context for itinerary generation with user preferences
         itinerary_context = {
             "city_name": city_name,
             "date": date,
-            "preferences": preferences or {},
+            "user_preferences": user_preferences,
             "weather_consideration": True,
             "include_quests": True,
-            "include_exploration": True
+            "include_exploration": True,
+            "generate_detailed_locations": True
         }
         
         # Generate itinerary using AI agent
@@ -453,27 +492,53 @@ async def generate_daily_itinerary(
         
         # Convert AI recommendations to structured itinerary
         time_slots = []
+        quest_locations = []
         safety_notes = []
         
-        for rec in recommendations_data["recommendations"]:
+        for i, rec in enumerate(recommendations_data.get("recommendations", [])):
+            # Create time slot
             time_slot = ItineraryTimeSlot(
-                start_time=rec.get("start_time", "09:00 AM"),
-                end_time=rec.get("end_time", "10:00 AM"),
+                start_time=rec.get("start_time", f"{9 + (i * 2):02d}:00 AM"),
+                end_time=rec.get("end_time", f"{10 + (i * 2):02d}:30 AM"),
                 activity_type=rec.get("activity_type", "exploration"),
-                title=rec.get("title", "Activity"),
+                title=rec.get("title", f"Activity {i + 1}"),
                 description=rec.get("description", "Explore and enjoy"),
                 location=rec.get("location"),
-                estimated_duration=rec.get("estimated_duration", "1 hour"),
+                estimated_duration=rec.get("estimated_duration", "1 hour 30 minutes"),
                 difficulty=rec.get("difficulty"),
                 weather_dependent=rec.get("weather_dependent", False)
             )
             time_slots.append(time_slot)
+            
+            # Collect locations for quest generation
+            if generate_quests and rec.get("location") and rec.get("latitude") and rec.get("longitude"):
+                quest_locations.append({
+                    "title": rec.get("title"),
+                    "description": rec.get("description"),
+                    "location": rec.get("location"),
+                    "latitude": rec.get("latitude"),
+                    "longitude": rec.get("longitude"),
+                    "activity_type": rec.get("activity_type"),
+                    "difficulty": rec.get("difficulty", "EASY"),
+                    "time_slot_index": i
+                })
         
-        # Add safety notes based on user profile and AI analysis
-        if recommendations_data.get("user_persona", {}).get("risk_tolerance") == "low":
+        # Add safety notes based on user preferences
+        risk_tolerance = user_preferences.get("risk_tolerance", "medium")
+        if risk_tolerance == "low":
             safety_notes.extend([
                 "Stay in well-lit and crowded areas",
                 "Share your itinerary with someone",
+                "Keep emergency contacts handy",
+                "Use only official transportation"
+            ])
+        elif risk_tolerance == "medium":
+            safety_notes.extend([
+                "Share your itinerary with someone",
+                "Keep emergency contacts handy"
+            ])
+        else:  # high risk tolerance
+            safety_notes.extend([
                 "Keep emergency contacts handy"
             ])
         
@@ -493,92 +558,164 @@ async def generate_daily_itinerary(
             safety_notes=safety_notes
         )
         
-        # Save to database
-        try:
-            # Get city_id if available
-            city_id = None
-            if user_location:
-                # Try to find the city in our database based on name
-                city = await db.city.find_first(
-                    where={
-                        "name": {"contains": city_name, "mode": "insensitive"},
-                        "isActive": True
-                    }
-                )
-                if city:
-                    city_id = city.id
-            
-            # Create database record
-            
-            # Use native JSON serialization for better compatibility            # Convert time slots to JSON-compatible format
-            time_slots_json = []
-            for slot in time_slots:
-                slot_dict = {
-                    "start_time": slot.start_time,
-                    "end_time": slot.end_time,
-                    "activity_type": slot.activity_type,
-                    "title": slot.title,
-                    "description": slot.description,
-                    "estimated_duration": slot.estimated_duration,
-                    "weather_dependent": slot.weather_dependent
-                }
-                # Only add optional fields if they exist and are not None
-                if slot.location:
-                    slot_dict["location"] = slot.location
-                if slot.difficulty:
-                    slot_dict["difficulty"] = slot.difficulty
-                time_slots_json.append(slot_dict)
-            
-            # Ensure JSON serialization works and validate data
-            try:
-                time_slots_str = json.dumps(time_slots_json)
-                time_slots_parsed = json.loads(time_slots_str)
-            except (TypeError, ValueError) as json_error:
-                print(f"⚠️ JSON serialization error: {json_error}")
-                # Fallback to simple structure if serialization fails
-                time_slots_parsed = [
-                    {
-                        "start_time": slot.get("start_time", "09:00 AM"),
-                        "end_time": slot.get("end_time", "10:00 AM"),
-                        "activity_type": slot.get("activity_type", "exploration"),
-                        "title": slot.get("title", "Activity"),
-                        "description": slot.get("description", "Explore and enjoy"),
-                        "estimated_duration": slot.get("estimated_duration", "1 hour"),
-                        "weather_dependent": bool(slot.get("weather_dependent", False))
-                    }
-                    for slot in time_slots_json
-                ]
-            
-            # Create data for database insertion
-            create_data = {
-                "userId": current_user.id,
-                "title": f"{city_name} Daily Itinerary",
-                "date": date,
-                "cityName": city_name,
-                "timeSlots": None,
-                "totalEstimatedTime": total_estimated_time,
-                "safetyNotes": safety_notes,
-                "weather": {"status": "Check local weather", "temperature": "Varies"},
-                "preferences": preferences or {},
-                "aiContext": recommendations_data.get("user_persona", {}),
-                "questsGenerated": len([slot for slot in time_slots if slot.activity_type == "quest"])
-            }
-            
-            # Add cityId if it exists
-            if city_id:
-                create_data["cityId"] = city_id
-            
-            db_itinerary = await db.itinerary.create(data=create_data)
-            print(f"✅ Successfully saved itinerary to database with ID: {db_itinerary.id}")
-        except Exception as db_error:
-            # Log the error but don't fail the request
-            print(f"❌ Failed to save itinerary to database: {db_error}")
-            # Don't print full traceback in production, just log the error type
-            print(f"Error type: {type(db_error).__name__}")
-            if hasattr(db_error, 'code'):
-                print(f"Error code: {db_error.code}")
+        saved_itinerary = None
+        generated_quests = []
         
-        return itinerary
+        # Save to database if requested
+        if auto_save:
+            try:
+                # Get city_id if available
+                city_id = None
+                if user_location:
+                    city = await db.city.find_first(
+                        where={
+                            "name": {"contains": city_name, "mode": "insensitive"},
+                            "isActive": True
+                        }
+                    )
+                    if city:
+                        city_id = city.id
+                
+                # Convert time slots to JSON-compatible format
+                time_slots_json = []
+                for slot in time_slots:
+                    slot_dict = {
+                        "start_time": slot.start_time,
+                        "end_time": slot.end_time,
+                        "activity_type": slot.activity_type,
+                        "title": slot.title,
+                        "description": slot.description,
+                        "estimated_duration": slot.estimated_duration,
+                        "weather_dependent": slot.weather_dependent
+                    }
+                    if slot.location:
+                        slot_dict["location"] = slot.location
+                    if slot.difficulty:
+                        slot_dict["difficulty"] = slot.difficulty
+                    time_slots_json.append(slot_dict)
+                
+                # Create itinerary in database
+                create_data = {
+                    "userId": current_user.id,
+                    "title": f"{city_name} Daily Itinerary",
+                    "date": date,
+                    "cityName": city_name,
+                    "timeSlots": time_slots_json,
+                    "totalEstimatedTime": total_estimated_time,
+                    "safetyNotes": safety_notes,
+                    "weather": {"status": "Check local weather", "temperature": "Varies"},
+                    "preferences": user_preferences,
+                    "aiContext": recommendations_data.get("user_persona", {}),
+                    "questsGenerated": 0  # Will be updated after quest creation
+                }
+                
+                if city_id:
+                    create_data["cityId"] = city_id
+                
+                saved_itinerary = await db.itinerary.create(data=create_data)
+                
+                # Generate quests for locations if requested
+                if generate_quests and quest_locations:
+                    quests_created = 0
+                    
+                    for quest_loc in quest_locations:
+                        try:
+                            # Determine quest type based on activity type
+                            activity_type = quest_loc.get("activity_type", "exploration")
+                            if activity_type in ["heritage", "culture", "museum"]:
+                                quest_type = QuestType.HERITAGE
+                            elif activity_type in ["hidden", "local", "secret"]:
+                                quest_type = QuestType.HIDDEN_GEMS
+                            else:
+                                quest_type = QuestType.DAILY
+                            
+                            # Map difficulty
+                            difficulty_map = {
+                                "easy": QuestDifficulty.EASY,
+                                "medium": QuestDifficulty.MEDIUM,
+                                "hard": QuestDifficulty.HARD,
+                                "extreme": QuestDifficulty.EXTREME
+                            }
+                            quest_difficulty = difficulty_map.get(
+                                quest_loc.get("difficulty", "easy").lower(), 
+                                QuestDifficulty.EASY
+                            )
+                            
+                            # Create quest
+                            quest = await db.quest.create(
+                                data={
+                                    "title": f"Explore: {quest_loc['title']}",
+                                    "description": f"Visit and explore {quest_loc['title']}. {quest_loc.get('description', '')}",
+                                    "type": quest_type,
+                                    "difficulty": quest_difficulty,
+                                    "cityId": city_id or str(uuid.uuid4()),
+                                    "itineraryId": saved_itinerary.id,
+                                    "latitude": quest_loc["latitude"],
+                                    "longitude": quest_loc["longitude"],
+                                    "radius": 100.0,
+                                    "xpReward": _calculate_xp_reward(quest_difficulty),
+                                    "tokenReward": _calculate_token_reward(quest_difficulty),
+                                    "requiredLevel": 1,
+                                    "isActive": True,
+                                    "hints": [f"Look for {quest_loc['location']}", "Take a photo to prove your visit"],
+                                    "requirements": {
+                                        "time_slot_index": quest_loc["time_slot_index"]
+                                    }
+                                }
+                            )
+                            
+                            generated_quests.append({
+                                "id": quest.id,
+                                "title": quest.title,
+                                "description": quest.description,
+                                "type": quest.type,
+                                "difficulty": quest.difficulty,
+                                "latitude": quest.latitude,
+                                "longitude": quest.longitude,
+                                "xp_reward": quest.xpReward,
+                                "token_reward": quest.tokenReward,
+                                "location": quest_loc["location"],
+                                "time_slot_index": quest_loc["time_slot_index"]
+                            })
+                            
+                            quests_created += 1
+                            
+                        except Exception as quest_error:
+                            print(f"Failed to create quest for {quest_loc.get('title', 'Unknown')}: {quest_error}")
+                    
+                    # Update itinerary with quest count
+                    if quests_created > 0:
+                        await db.itinerary.update(
+                            where={"id": saved_itinerary.id},
+                            data={"questsGenerated": quests_created}
+                        )
+                
+            except Exception as db_error:
+                print(f"Failed to save itinerary to database: {db_error}")
+                # Continue without failing the request
+        
+        # Return comprehensive response
+        return {
+            "success": True,
+            "message": "Itinerary generated successfully" + (" with quests" if generate_quests else ""),
+            "itinerary": {
+                "id": saved_itinerary.id if saved_itinerary else None,
+                "date": date,
+                "city": city_name,
+                "time_slots": [slot.__dict__ for slot in time_slots],
+                "total_estimated_time": total_estimated_time,
+                "safety_notes": safety_notes,
+                "weather": {"status": "Check local weather", "temperature": "Varies"},
+                "quests_generated": len(generated_quests)
+            },
+            "generated_quests": generated_quests if generate_quests else [],
+            "user_preferences_used": user_preferences,
+            "quest_generation_summary": {
+                "total_locations": len(quest_locations) if generate_quests else 0,
+                "quests_created": len(generated_quests),
+                "auto_saved": auto_save
+            } if generate_quests else None
+        }
         
     except Exception as e:
         # Fallback itinerary
@@ -664,7 +801,7 @@ async def generate_daily_itinerary(
                 "totalEstimatedTime": "5 hours",
                 "safetyNotes": ["Stay hydrated", "Keep local emergency numbers", "Use official transportation"],
                 "weather": None,
-                "preferences": preferences or {},
+                "preferences": user_preferences,
                 "aiContext": {"fallback": True, "error": str(e)},
                 "questsGenerated": len([slot for slot in fallback_slots if slot.activity_type == "quest"])
             }
@@ -683,6 +820,71 @@ async def generate_daily_itinerary(
                 print(f"Error code: {db_error.code}")
         
         return fallback_itinerary
+
+
+@router.get("/itinerary/{itinerary_id}/quests")
+async def get_itinerary_quests(
+    itinerary_id: str,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Get all quests generated for a specific itinerary"""
+    try:
+        # Verify itinerary ownership
+        itinerary = await db.itinerary.find_unique(
+            where={"id": itinerary_id}
+        )
+        
+        if not itinerary:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Itinerary not found"
+            )
+        
+        if itinerary.userId != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this itinerary"
+            )
+        
+        # Find quests generated for this itinerary
+        quests = await db.quest.find_many(
+            where={
+                "itineraryId": itinerary_id,
+                "isActive": True
+            },
+            include={"city": True}
+        )
+        
+        return {
+            "success": True,
+            "itinerary_id": itinerary_id,
+            "total_quests": len(quests),
+            "quests": [
+                {
+                    "id": quest.id,
+                    "title": quest.title,
+                    "description": quest.description,
+                    "type": quest.type,
+                    "difficulty": quest.difficulty,
+                    "latitude": quest.latitude,
+                    "longitude": quest.longitude,
+                    "xp_reward": quest.xpReward,
+                    "token_reward": quest.tokenReward,
+                    "time_slot_index": quest.requirements.get("time_slot_index") if quest.requirements else None,
+                    "created_at": quest.createdAt
+                }
+                for quest in quests
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve itinerary quests: {str(e)}"
+        )
 
 
 @router.get("/itineraries", response_model=List[ItineraryResponse])

@@ -12,6 +12,7 @@ load_dotenv()
 
 from app.core.database import init_db
 from app.api.routes import auth, users, cities, quests, badges, safety, leaderboards, ai_recommendations, exploration, journal
+from app.api.routes import auth, users, cities, quests, badges, safety, leaderboards, ai_recommendations, exploration, itinerary, preferences, emergency_contacts
 from app.core.config import settings
 
 security = HTTPBearer()
@@ -53,6 +54,9 @@ app.include_router(leaderboards.router, prefix="/api/leaderboards", tags=["leade
 app.include_router(ai_recommendations.router, prefix="/api/ai", tags=["ai-recommendations"])
 app.include_router(exploration.router, prefix="/api/exploration", tags=["exploration"])
 app.include_router(journal.router, prefix="/api/journal", tags=["journal"])
+app.include_router(itinerary.router, prefix="/api/itinerary", tags=["itinerary"])
+app.include_router(preferences.router, prefix="/api/preferences", tags=["preferences"])
+app.include_router(emergency_contacts.router, prefix="/api", tags=["emergency-contacts"])
 
 @app.get("/health")
 async def health_check():
@@ -80,4 +84,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="localhost", port=8000)
+    uvicorn.run('main:app', host="localhost", port=8000, reload=True)

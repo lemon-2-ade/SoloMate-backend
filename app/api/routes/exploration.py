@@ -48,7 +48,6 @@ async def get_all_nearby_categories(
             ExplorationCategory.FOOD,
             ExplorationCategory.SHOPS,
             ExplorationCategory.TOURISM,
-            ExplorationCategory.MEDICAL
         ]
         
         for category in main_categories:

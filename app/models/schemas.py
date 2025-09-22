@@ -289,6 +289,10 @@ class ExplorationResponse(BaseModel):
     radius_km: float
 
 # Itinerary models
+class ItinerarySource(str, Enum):
+    AI = "AI"
+    USER = "USER"
+
 class ItineraryTimeSlot(BaseModel):
     start_time: str  # "09:00 AM"
     end_time: str    # "10:30 AM"
@@ -314,12 +318,30 @@ class ItineraryCreate(BaseModel):
     date: str = Field(..., description="Date of the itinerary")
     city_name: str = Field(..., description="City name")
     city_id: Optional[str] = Field(None, description="City ID if available")
-    time_slots: List[ItineraryTimeSlot] = Field(..., description="List of time slots")
-    total_estimated_time: str = Field(..., description="Total estimated time")
+    
+    # For AI-generated itineraries
+    time_slots: Optional[List[ItineraryTimeSlot]] = Field(None, description="List of time slots for AI itineraries")
+    total_estimated_time: Optional[str] = Field(None, description="Total estimated time for AI itineraries")
+    
+    # For user-created itineraries
+    destination: Optional[str] = Field(None, description="Destination name for user itineraries")
+    start_date: Optional[str] = Field(None, description="Start date (YYYY-MM-DD) for user itineraries")
+    end_date: Optional[str] = Field(None, description="End date (YYYY-MM-DD) for user itineraries")
+    budget_per_day: Optional[int] = Field(None, ge=0, description="Budget per day in local currency")
+    travel_style: Optional[str] = Field(None, description="Travel style: Chill&Relax, Culture&Heritage, Adventure&Thrill, Mix of Everything")
+    interests: Optional[List[str]] = Field(None, description="User interests/activities")
+    accommodation_type: Optional[str] = Field(None, description="Accommodation preference")
+    accommodation_budget_per_night: Optional[int] = Field(None, ge=0, description="Accommodation budget per night")
+    safety_priority: Optional[str] = Field(None, description="Safety priority: High, Medium, Low")
+    special_requests: Optional[str] = Field(None, max_length=1000, description="Special requirements or requests")
+    status: Optional[str] = Field("draft", description="Status: draft, planning, confirmed, completed")
+    
+    # Common fields
     safety_notes: List[str] = Field(default=[], description="Safety notes")
     weather: Optional[Dict[str, Any]] = Field(None, description="Weather information")
     preferences: Optional[Dict[str, Any]] = Field(None, description="User preferences used")
     ai_context: Optional[Dict[str, Any]] = Field(None, description="AI generation context")
+    source: ItinerarySource = Field(ItinerarySource.AI, description="Source of itinerary (AI or USER)")
 
 class ItineraryResponse(BaseModel):
     id: str
@@ -335,6 +357,7 @@ class ItineraryResponse(BaseModel):
     preferences: Optional[Dict[str, Any]]
     ai_context: Optional[Dict[str, Any]]
     quests_generated: int
+    source: ItinerarySource
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -344,7 +367,6 @@ class ItineraryUpdate(BaseModel):
     is_active: Optional[bool] = None
     time_slots: Optional[List[ItineraryTimeSlot]] = None
     safety_notes: Optional[List[str]] = None
-
 # Checklist models
 class ChecklistItemType(str, Enum):
     ACCOMMODATION = "ACCOMMODATION"
@@ -423,3 +445,55 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     success: bool = False
+
+# Emergency Contact models
+class EmergencyContactCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Contact name")
+    phone_number: str = Field(..., description="Phone number in international format")
+    email: Optional[str] = Field(None, description="Contact email address")
+    relationship: str = Field(..., min_length=1, max_length=50, description="Relationship to user")
+    is_primary: bool = Field(False, description="Mark as primary contact")
+
+class EmergencyContactUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+    relationship: Optional[str] = Field(None, min_length=1, max_length=50)
+    is_primary: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+class EmergencyContactResponse(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    phone_number: str
+    email: Optional[str]
+    relationship: str
+    is_primary: bool
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# SOS models
+class SosAlertCreate(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90, description="Latitude coordinate")
+    longitude: float = Field(..., ge=-180, le=180, description="Longitude coordinate")
+    notes: Optional[str] = Field(None, max_length=500, description="Optional notes about the emergency")
+
+class SosAlertResponse(BaseModel):
+    id: str
+    user_id: str
+    latitude: float
+    longitude: float
+    address: Optional[str]
+    timestamp: datetime
+    contacts_notified: int
+    is_resolved: bool
+    resolved_at: Optional[datetime]
+    notes: Optional[str]
+
+    class Config:
+        from_attributes = True
