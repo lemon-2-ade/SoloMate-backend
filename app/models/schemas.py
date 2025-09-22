@@ -390,6 +390,30 @@ class AiRecommendationResponse(BaseModel):
     created_at: datetime
     expires_at: Optional[datetime]
 
+# Journal Entry schemas
+class JournalEntryCreate(BaseModel):
+    content: str = Field(..., min_length=1, max_length=1000, description="Journal entry content")
+    date: Optional[datetime] = Field(None, description="Entry date (defaults to current time)")
+    location: Optional[str] = Field(None, max_length=200, description="Location for this entry")
+    mood: Optional[str] = Field(None, max_length=50, description="User's mood")
+    tags: Optional[List[str]] = Field(default_factory=list, description="Entry tags")
+
+class JournalEntryResponse(BaseModel):
+    id: str
+    content: str
+    date: datetime
+    location: Optional[str] = None
+    mood: Optional[str] = None
+    tags: List[str] = []
+    created_at: datetime
+    updated_at: datetime
+    user_id: str
+
+class JournalEntriesResponse(BaseModel):
+    entries: List[JournalEntryResponse]
+    total: int
+    has_more: bool
+
 # Generic response models
 class MessageResponse(BaseModel):
     message: str
