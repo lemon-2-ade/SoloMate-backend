@@ -779,9 +779,9 @@ async def scrape_location_news(
             else:
                 safety_assessment = "Generally Safe - Positive safety indicators"
         else:
-            avg_threat_level = 5.0
-            avg_safety_score = 0.0
-            safety_assessment = "No significant safety news found"
+            avg_threat_level = 3.0  # Lower threat level when no news (more positive)
+            avg_safety_score = 0.80  # Maintain baseline safety score of 0.80
+            safety_assessment = "No significant safety concerns found in recent news"
         
         return {
             "location": {
@@ -799,8 +799,8 @@ async def scrape_location_news(
             "safety_analysis": {
                 "overall_assessment": safety_assessment,
                 "average_threat_level": round(avg_threat_level, 2),
-                "average_safety_score": round(avg_safety_score, 3) + 0.35,
-                "safety_index_impact": round(1.0 - (avg_threat_level - 5) * 0.1, 2)
+                "average_safety_score": round(avg_safety_score, 3),
+                "safety_index_impact": round(1.0 - (avg_threat_level - 3.0) * 0.08, 2)  # Adjusted baseline from 3.0
             },
             "articles": safety_relevant[:10],  # Return top 10 most relevant
             "scraped_at": datetime.utcnow().isoformat(),
