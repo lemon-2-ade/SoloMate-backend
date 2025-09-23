@@ -24,32 +24,36 @@ from app.models.schemas import (
 
 router = APIRouter()
 
+# Update the quest generation function to just return quests without DB storage
+
 async def generate_ai_quests_for_itinerary(
     db,
     user_id: str,
     itinerary,
-    time_slots: List[ItineraryTimeSlot],
+    time_slots: List[Dict[str, Any]],
     city_name: str,
     user_preferences: Dict[str, Any]
-) -> List[Any]:
+) -> List[Dict[str, Any]]:
     """
-    Generate AI-powered quests for an itinerary using the AI agent
+    Generate AI-powered quests for an itinerary and return them (no DB storage)
     """
+    print(f"🔍 Generating quests for itinerary: {getattr(itinerary, 'title', 'Unknown')}")
+    print(f"📍 Time slots received: {len(time_slots)}")
     generated_quests = []
     
     try:
         # Prepare quest generation context
         quest_context = {
-            "itinerary_id": itinerary.id,
+            "itinerary_title": itinerary.title if hasattr(itinerary, 'title') else f"Explore {city_name}",
             "city_name": city_name,
             "time_slots": [
                 {
-                    "title": slot.title,
-                    "description": slot.description,
-                    "location": slot.location,
-                    "activity_type": slot.activity_type,
-                    "start_time": slot.start_time,
-                    "difficulty": slot.difficulty
+                    "title": slot.get("title", ""),
+                    "description": slot.get("description", ""),
+                    "location": slot.get("location", ""),
+                    "activity_type": slot.get("activity_type", ""),
+                    "start_time": slot.get("start_time", ""),
+                    "difficulty": slot.get("difficulty", "EASY")
                 } for slot in time_slots
             ],
             "user_preferences": user_preferences,
@@ -58,15 +62,22 @@ async def generate_ai_quests_for_itinerary(
         }
         
         # Use AI agent to generate quest suggestions
-        from app.services.ai_agent import generate_recommendations
         quest_recommendations = await generate_recommendations(
             user_id=user_id,
-            recommendation_type="QUESTS",
+            recommendation_type="QUEST",
             user_location=None,
-            context={"quest_generation": quest_context}
+            context={
+                "user_persona": {"preferred_quest_types": ["EXPLORATION", "HERITAGE"], "experience_level": "intermediate"},
+                "quest_patterns": f"User requesting quests for {city_name} itinerary with {len(time_slots)} time slots",
+                "safety_requirements": user_preferences.get("safety", {}),
+                "quest_generation": quest_context
+            }
         )
         
-        # Create quests from AI recommendations
+        print(f"📊 AI quest recommendations response: {quest_recommendations}")
+        print(f"📊 Number of recommendations: {len(quest_recommendations.get('recommendations', []))}")
+        
+        # Create quest objects from AI recommendations (no DB storage)
         for i, quest_rec in enumerate(quest_recommendations.get("recommendations", [])):
             # Extract quest data from AI recommendation
             quest_type = quest_rec.get("type", "EXPLORATION")
@@ -81,63 +92,45 @@ async def generate_ai_quests_for_itinerary(
             xp_reward = _calculate_xp_reward(QuestDifficulty(difficulty))
             token_reward = _calculate_token_reward(QuestDifficulty(difficulty))
             
-            # Create quest in database
-            quest = await db.quest.create(
-                data={
-                    "userId": user_id,
-                    "itineraryId": itinerary.id,
-                    "cityId": itinerary.cityId,
-                    "title": quest_rec.get("title", f"Explore {city_name}"),
-                    "description": quest_rec.get("description", "Discover this amazing location"),
-                    "type": quest_type,
-                    "difficulty": difficulty,
-                    "latitude": quest_rec.get("latitude", 0.0),
-                    "longitude": quest_rec.get("longitude", 0.0),
-                    "xpReward": xp_reward,
-                    "tokenReward": token_reward,
-                    "requirements": {
-                        "time_slot_index": i,
-                        "location": quest_rec.get("location", city_name),
-                        "ai_generated": True,
-                        "quest_context": quest_rec.get("context", {})
-                    },
-                    "isActive": True
-                }
-            )
-            generated_quests.append(quest)
+            # Create quest object (just return the data, don't store in DB)
+            quest_data = {
+                "id": f"quest_{uuid.uuid4().hex[:8]}",  # Generate temporary ID
+                "title": quest_rec.get("title", f"Explore {city_name}"),
+                "description": quest_rec.get("description", "Discover this amazing location"),
+                "type": quest_type,
+                "difficulty": difficulty,
+                "latitude": quest_rec.get("latitude", 0.0),
+                "longitude": quest_rec.get("longitude", 0.0),
+                "xp_reward": xp_reward,
+                "token_reward": token_reward,
+                "location": quest_rec.get("location", city_name),
+                "time_slot_index": i,
+                "ai_generated": True,
+                "quest_context": quest_rec.get("context", {})
+            }
+            generated_quests.append(quest_data)
             
-        print(f"✅ Generated {len(generated_quests)} AI-powered quests for itinerary {itinerary.id}")
+        print(f"✅ Generated {len(generated_quests)} AI-powered quests for {city_name}")
         
     except Exception as e:
         print(f"❌ Failed to generate AI quests: {str(e)}")
         # Fallback to simple quests if AI fails
         for i, slot in enumerate(time_slots[:3]):  # Limit to first 3 slots
-            try:
-                quest = await db.quest.create(
-                    data={
-                        "userId": user_id,
-                        "itineraryId": itinerary.id,
-                        "cityId": itinerary.cityId,
-                        "title": f"Explore {slot.title}",
-                        "description": f"Discover and explore {slot.title} - {slot.description}",
-                        "type": "EXPLORATION",
-                        "difficulty": "EASY",
-                        "latitude": 0.0,
-                        "longitude": 0.0,
-                        "xpReward": 50,
-                        "tokenReward": 10,
-                        "requirements": {
-                            "time_slot_index": i,
-                            "location": slot.location or city_name,
-                            "fallback": True
-                        },
-                        "isActive": True
-                    }
-                )
-                generated_quests.append(quest)
-            except Exception as quest_error:
-                print(f"❌ Failed to create fallback quest {i}: {quest_error}")
-                continue
+            quest_data = {
+                "id": f"quest_{uuid.uuid4().hex[:8]}",
+                "title": f"Explore {slot.get('title', 'Unknown Location')}",
+                "description": f"Discover and explore {slot.get('title', 'this location')} - {slot.get('description', 'Experience this amazing destination')}",
+                "type": "EXPLORATION",
+                "difficulty": "EASY",
+                "latitude": 0.0,
+                "longitude": 0.0,
+                "xp_reward": 50,
+                "token_reward": 10,
+                "location": slot.get("location", city_name),
+                "time_slot_index": i,
+                "fallback": True
+            }
+            generated_quests.append(quest_data)
     
     return generated_quests
 
@@ -739,12 +732,12 @@ async def generate_daily_itinerary(
                 )
 
                 # Generate AI-powered quests for the itinerary
-                if generate_quests and saved_itinerary:
+                if generate_quests:
                     generated_quests = await generate_ai_quests_for_itinerary(
                         db=db,
                         user_id=current_user.id,
                         itinerary=itinerary_create_data,
-                        time_slots=time_slots,
+                        time_slots=[slot.__dict__ for slot in time_slots],
                         city_name=city_name,
                         user_preferences=user_preferences
                     )
@@ -786,21 +779,22 @@ async def generate_daily_itinerary(
                 "total_estimated_time": total_estimated_time,
                 "safety_notes": safety_notes,
                 "weather": {"status": "Check local weather", "temperature": "Varies"},
-                "quests_generated": len(generated_quests) if auto_save and generate_quests else 0
+                "quests_generated": len(generated_quests) # if auto_save and generate_quests else 0
             },
             generated_quests=[
-                {
-                    "id": quest.id,
-                    "title": quest.title,
-                    "description": quest.description,
-                    "type": quest.type,
-                    "difficulty": quest.difficulty,
-                    "pointsReward": quest.pointsReward
-                } for quest in generated_quests
+                # {
+                #     "id": quest.id,
+                #     "title": quest.title,
+                #     "description": quest.description,
+                #     "type": quest.type,
+                #     "difficulty": quest.difficulty,
+                #     "pointsReward": quest.pointsReward
+                # }
+                quest for quest in generated_quests
             ] if auto_save and generate_quests else [],
             user_preferences_used=user_preferences,
             quest_generation_summary={
-                "quests_created": len(generated_quests) if auto_save and generate_quests else 0,
+                "quests_created": len(generated_quests), # if auto_save and generate_quests else 0,
                 "auto_saved": auto_save,
                 "database_saved": saved_itinerary is not None
             } if generate_quests else None
